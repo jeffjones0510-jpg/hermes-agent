@@ -218,8 +218,13 @@ KANBAN_REQUEST_REVIEW_SCHEMA = _schema(
                 "the whole diff; the reviewer has the board and the PR."
         )),
         "reviewer": _prop("string", (
-                "Optional reviewer profile. When provided, the task is "
-                "reassigned to that profile before review dispatch."
+                "Reviewer profile. Reassigns the task to that profile before "
+                "review dispatch. Required on a first review request — "
+                "omitting it here does not fail loudly on every backend, and "
+                "some silently leave the task assigned to you instead of a "
+                "reviewer. Safe to omit only on a re-review after "
+                "changes_requested, where it inherits the same reviewer as "
+                "last time."
         )),
         "metadata": {
             "type": "object",
@@ -230,7 +235,7 @@ KANBAN_REQUEST_REVIEW_SCHEMA = _schema(
             "additionalProperties": True,
         },
     },
-    ["summary"],
+    ["summary", "reviewer"],
 )
 
 KANBAN_REQUEST_CHANGES_SCHEMA = _schema(

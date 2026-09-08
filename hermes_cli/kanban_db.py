@@ -3032,13 +3032,29 @@ def request_review(
             )
         implementer = trow["assignee"]
         if reviewer is None:
-            reviewer = _prior_reviewer(conn, task_id)
-            if reviewer is False:
+            inherited = _prior_reviewer(conn, task_id)
+            if inherited is False:
                 return _ret(
                     False, "re-review has no durable reviewer provenance (the "
                     "latest changes_requested event is missing or "
                     "malformed); pass reviewer= explicitly",
                 )
+            if inherited is None:
+                # First review request, no reviewer given, nothing to inherit.
+                # Falling through here used to leave `assignee` unchanged
+                # (assignee_sql omitted below when reviewer is None), silently
+                # routing the review-lane claim back to the implementer
+                # instead of a reviewer -- the exact mechanism behind the
+                # t_bf82b48f self-approval (see
+                # docs/audit/2026-09-07-capped-loop-scenarios-abc.md). Refuse
+                # outright instead, same shape as the malformed-provenance
+                # rejection just above.
+                return _ret(
+                    False, "reviewer is required on a first review request (no "
+                    "prior changes_requested round to inherit from); pass "
+                    "reviewer= explicitly",
+                )
+            reviewer = inherited
         reviewer = _canonical_assignee(reviewer)
         assignee_sql = ", assignee = ?" if reviewer is not None else ""
         run_guard = "" if expected_run_id is None else " AND current_run_id = ?"
