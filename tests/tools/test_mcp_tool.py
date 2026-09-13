@@ -1348,6 +1348,63 @@ class TestBuildSafeEnv:
         assert "SECRET_KEY" not in result
         assert "AWS_ACCESS_KEY_ID" not in result
 
+    def test_kanban_task_and_run_id_passed_through_under_renamed_keys(self):
+        """Regression (2026-09-13, career-scan sweep t_ab5eaf4c): a profile's own
+        validate-style MCP server (e.g. mcp_sweep_validate.py) writes a
+        require_validated_output completion-gate stamp keyed by the calling
+        worker's task/run id -- neither HERMES_KANBAN_TASK nor _RUN_ID reached
+        the stdio subprocess at all, so no stamp was ever written and
+        kanban_complete rejected every attempt with 'no validate_output stamp
+        found', even though validate_output itself had returned valid:true.
+
+        The literal HERMES_KANBAN_TASK/RUN_ID names must NOT be passed through
+        (see test_kanban_identity_vars_never_passed_through_literally below --
+        agent.delegation_context.KANBAN_ENV_KEYS is scrubbed from every
+        subprocess by delegated_child_subprocess_env, a deliberate security
+        boundary against a descendant impersonating the worker's kanban
+        identity). The fix hands the SAME values over under different,
+        non-scrubbed names instead."""
+        from tools.mcp_tool_config import _build_safe_env
+
+        fake_env = {
+            "PATH": "/usr/bin",
+            "HERMES_KANBAN_TASK": "t_ab5eaf4c",
+            "HERMES_KANBAN_RUN_ID": "63",
+            "SECRET_KEY": "should_not_appear",
+        }
+        with patch.dict("os.environ", fake_env, clear=True):
+            result = _build_safe_env(None)
+
+        assert result["HERMES_VALIDATION_TASK_ID"] == "t_ab5eaf4c"
+        assert result["HERMES_VALIDATION_RUN_ID"] == "63"
+        assert "SECRET_KEY" not in result
+
+    def test_kanban_identity_vars_never_passed_through_literally(self):
+        """The renamed keys exist precisely because the literal identity vars
+        must never reach a subprocess -- confirm the guarantee directly,
+        not just that the rename exists."""
+        from tools.mcp_tool_config import _build_safe_env
+
+        fake_env = {
+            "PATH": "/usr/bin",
+            "HERMES_KANBAN_TASK": "t_ab5eaf4c",
+            "HERMES_KANBAN_RUN_ID": "63",
+        }
+        with patch.dict("os.environ", fake_env, clear=True):
+            result = _build_safe_env(None)
+
+        assert "HERMES_KANBAN_TASK" not in result
+        assert "HERMES_KANBAN_RUN_ID" not in result
+
+    def test_validation_vars_absent_when_unset(self):
+        from tools.mcp_tool_config import _build_safe_env
+
+        with patch.dict("os.environ", {"PATH": "/usr/bin"}, clear=True):
+            result = _build_safe_env(None)
+
+        assert "HERMES_VALIDATION_TASK_ID" not in result
+        assert "HERMES_VALIDATION_RUN_ID" not in result
+
     def test_secret_vars_excluded(self):
         """Sensitive env vars from os.environ are NOT passed through."""
         from tools.mcp_tool_config import _build_safe_env

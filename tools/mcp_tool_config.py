@@ -112,6 +112,22 @@ def _build_safe_env(user_env: Optional[dict]) -> dict:
     for key in ("HERMES_KANBAN_DB", "HERMES_KANBAN_BOARD"):
         if key in os.environ:
             env[key] = os.environ[key]
+    # Deliberately NOT the literal HERMES_KANBAN_TASK/RUN_ID names: those are in
+    # agent.delegation_context.KANBAN_ENV_KEYS, which delegated_child_subprocess_env
+    # (called at the end of this function) unconditionally scrubs from ANY subprocess
+    # once a worker context is detected -- a real security boundary, not an oversight,
+    # so a spawned descendant can never impersonate this worker's kanban identity
+    # (kanban_complete/kanban_block/etc). A profile's own validate-style MCP server
+    # (e.g. career-workflow's mcp_sweep_validate.py) has no such tools and only needs
+    # the bare task/run identifiers to write a require_validated_output completion-
+    # gate stamp (tools/validation_stamp.py) -- hand them over under different names
+    # that survive that scrub. Found live 2026-09-13 (sweep t_ab5eaf4c): without this,
+    # validate_output returned valid:true but no stamp was ever written, so
+    # kanban_complete rejected every completion attempt with "no stamp found".
+    if "HERMES_KANBAN_TASK" in os.environ:
+        env["HERMES_VALIDATION_TASK_ID"] = os.environ["HERMES_KANBAN_TASK"]
+    if "HERMES_KANBAN_RUN_ID" in os.environ:
+        env["HERMES_VALIDATION_RUN_ID"] = os.environ["HERMES_KANBAN_RUN_ID"]
     if user_env:
         env.update(user_env)
     from agent.delegation_context import delegated_child_subprocess_env
