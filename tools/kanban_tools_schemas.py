@@ -467,7 +467,9 @@ KANBAN_CREATE_SCHEMA = _schema(
             "a validate_output-family tool already ran, THIS run, against the exact object "
             "passed as kanban_complete's metadata, and reported valid:true. Use for profiles "
             "whose validate tool writes a stamp (see tools/validation_stamp.py); a worker "
-            "cannot skip validation and hand-craft metadata instead. Defaults to false."
+            "cannot skip validation and hand-craft metadata instead. Omit to inherit the "
+            "board's own default (see `kanban boards set-require-validated-output-default`); "
+            "an explicit true/false here always overrides that default."
         )),
         "goal_max_turns": _prop("integer", (
                 "Turn budget for goal_mode workers. Caps how many "

@@ -184,6 +184,47 @@ class TestBoardCRUD:
         # Slug must not change.
         assert kb.board_exists("slug-immutable")
 
+    def test_require_validated_output_default_false_by_default(self, fresh_home):
+        kb.create_board("gate-default")
+        assert kb.read_board_metadata("gate-default")["require_validated_output_default"] is False
+
+    def test_require_validated_output_default_round_trips(self, fresh_home):
+        kb.create_board("gate-board")
+        kb.write_board_metadata("gate-board", require_validated_output_default=True)
+        assert kb.read_board_metadata("gate-board")["require_validated_output_default"] is True
+        kb.write_board_metadata("gate-board", require_validated_output_default=False)
+        assert kb.read_board_metadata("gate-board")["require_validated_output_default"] is False
+
+    def test_require_validated_output_default_unmentioned_key_preserved(self, fresh_home):
+        # Setting an unrelated field must not reset require_validated_output_default,
+        # same convention as description/icon/color's "None = unchanged".
+        kb.create_board("gate-board-2")
+        kb.write_board_metadata("gate-board-2", require_validated_output_default=True)
+        kb.write_board_metadata("gate-board-2", name="Renamed")
+        assert kb.read_board_metadata("gate-board-2")["require_validated_output_default"] is True
+
+    def test_create_task_inherits_board_default_when_unspecified(self, fresh_home):
+        kb.create_board("gated")
+        kb.write_board_metadata("gated", require_validated_output_default=True)
+        with kbc.connect(board="gated") as conn:
+            tid = kb.create_task(conn, title="t1", assignee="dev", board="gated")
+            assert kb.get_task(conn, tid).require_validated_output is True
+
+    def test_create_task_explicit_false_overrides_board_default(self, fresh_home):
+        kb.create_board("gated-2")
+        kb.write_board_metadata("gated-2", require_validated_output_default=True)
+        with kbc.connect(board="gated-2") as conn:
+            tid = kb.create_task(
+                conn, title="t1", assignee="dev", board="gated-2",
+                require_validated_output=False)
+            assert kb.get_task(conn, tid).require_validated_output is False
+
+    def test_create_task_unspecified_on_ungated_board_stays_false(self, fresh_home):
+        kb.create_board("ungated")
+        with kbc.connect(board="ungated") as conn:
+            tid = kb.create_task(conn, title="t1", assignee="dev", board="ungated")
+            assert kb.get_task(conn, tid).require_validated_output is False
+
 
 # ---------------------------------------------------------------------------
 # Connection isolation

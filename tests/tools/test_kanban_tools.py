@@ -313,6 +313,25 @@ def test_create_persists_require_validated_output_flag(worker_env):
         assert kb.get_task(conn, out["task_id"]).require_validated_output is True
 
 
+def test_create_omitted_flag_inherits_board_default(monkeypatch, worker_env):
+    """A worker calling kanban_create WITHOUT the key at all (the common case --
+    most callers never pass it) must inherit the board default, not silently
+    force False the way a naive bool(args.get(...)) would."""
+    from hermes_cli import kanban_db as kb
+    from hermes_cli import kanban_db_connect as kbc
+    from tools import kanban_tools as kt
+
+    with kbc.connect() as conn:
+        board = kb.get_current_board() if hasattr(kb, "get_current_board") else None
+    kb.write_board_metadata(board, require_validated_output_default=True)
+
+    out = json.loads(kt._handle_create({"title": "inherits gate", "assignee": "test-worker"}))
+
+    assert out.get("ok") is True
+    with kbc.connect() as conn:
+        assert kb.get_task(conn, out["task_id"]).require_validated_output is True
+
+
 def test_request_review_rejects_unknown_reviewer_without_mutation(monkeypatch, worker_env, tmp_path):
     """#106163: a non-profile ``reviewer`` (e.g. the literal "reviewer") must be
     refused with an error the model sees, leaving the task running under the

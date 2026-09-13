@@ -155,6 +155,17 @@ def _cmd_boards_set_default_workdir(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_boards_set_require_validated_output_default(args: argparse.Namespace) -> int:
+    normed, rc = _board_slug_arg(args, "set-require-validated-output-default", must_exist=True)
+    if rc:
+        return rc
+    value = str(getattr(args, "value", "true")) == "true"
+    new_val = kb.write_board_metadata(
+        normed, require_validated_output_default=value).get("require_validated_output_default")
+    print(f"Board {normed!r} require_validated_output_default set to {new_val!r}.")
+    return 0
+
+
 def _cmd_boards_export(args: argparse.Namespace) -> int:
     from hermes_cli import kanban_transfer
     from hermes_cli.sizefmt import format_bytes
@@ -209,6 +220,7 @@ _BOARD_HANDLERS = {
     "show": _cmd_boards_show, "current": _cmd_boards_show,
     "rename": _cmd_boards_rename,
     "set-default-workdir": _cmd_boards_set_default_workdir,
+    "set-require-validated-output-default": _cmd_boards_set_require_validated_output_default,
     "export": _cmd_boards_export,
     "import": _cmd_boards_import,
 }

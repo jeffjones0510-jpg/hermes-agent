@@ -860,7 +860,11 @@ def _handle_create(args: dict, **kw) -> str:
     triage, skills, goal_mode = (
         _parse_bool_arg(args, "triage"), _coerce_str_list(args.get("skills"), "skills", "skill names"),
         _parse_bool_arg(args, "goal_mode"))
-    require_validated_output = _parse_bool_arg(args, "require_validated_output")
+    # None (key omitted) lets create_task fall through to the board's own default
+    # (require_validated_output_default) instead of forcing False -- see kanban_db.py.
+    require_validated_output = (
+        _parse_bool_arg(args, "require_validated_output")
+        if "require_validated_output" in args else None)
     model_override, provider_override = args.get("model"), args.get("provider")
     _check(model_override or not provider_override, "'provider' requires 'model' to be set as well")
     parents = _coerce_str_list(args.get("parents") or [], "parents", "task ids")

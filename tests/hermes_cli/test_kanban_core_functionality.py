@@ -985,6 +985,59 @@ def _make_create_ns(**overrides):
     return ns
 
 
+@pytest.fixture
+def fresh_home_for_create(tmp_path, monkeypatch):
+    """Isolated HERMES_HOME with no prior kanban state, for _cmd_create tests."""
+    home = tmp_path / "hermes_home"
+    home.mkdir()
+    monkeypatch.setenv("HERMES_HOME", str(home))
+    for var in (
+        "HERMES_KANBAN_DB", "HERMES_KANBAN_WORKSPACES_ROOT",
+        "HERMES_KANBAN_HOME", "HERMES_KANBAN_BOARD",
+    ):
+        monkeypatch.delenv(var, raising=False)
+    kb._INITIALIZED_PATHS.clear()
+    return home
+
+
+class TestCreateRequireValidatedOutputFlag:
+    """P1a follow-up: the CLI create path had never been wired to
+    require_validated_output at all -- only the MCP kanban_create handler
+    had it. A real sweep (t_b52d08bc, 2026-09-13) dispatched via this CLI
+    path completed with the metadata-omission anti-pattern the gate exists
+    to catch, because this path could not require the gate at all."""
+
+    def test_explicit_flag_sets_require_validated_output_true(self, fresh_home_for_create):
+        from hermes_cli import kanban as kb_cli
+        ns = _make_create_ns(require_validated_output=True)
+        assert kb_cli._cmd_create(ns) == 0
+        with kbc.connect_closing() as conn:
+            tasks = kb.list_tasks(conn)
+            assert tasks[0].require_validated_output is True
+
+    def test_flag_omitted_defaults_false_on_ungated_board(self, fresh_home_for_create):
+        from hermes_cli import kanban as kb_cli
+        ns = _make_create_ns()
+        assert kb_cli._cmd_create(ns) == 0
+        with kbc.connect_closing() as conn:
+            tasks = kb.list_tasks(conn)
+            assert tasks[0].require_validated_output is False
+
+    def test_flag_omitted_inherits_board_default(self, fresh_home_for_create, monkeypatch):
+        from hermes_cli import kanban as kb_cli
+        kb.create_board("gated-cli-board")
+        kb.write_board_metadata("gated-cli-board", require_validated_output_default=True)
+        # Real CLI dispatch pins HERMES_KANBAN_BOARD from --board before calling
+        # _cmd_create (see kanban.py's board_scope context manager); calling
+        # _cmd_create directly here bypasses that wrapper, so pin it ourselves.
+        monkeypatch.setenv("HERMES_KANBAN_BOARD", "gated-cli-board")
+        ns = _make_create_ns(board="gated-cli-board")
+        assert kb_cli._cmd_create(ns) == 0
+        with kbc.connect_closing(board="gated-cli-board") as conn:
+            tasks = kb.list_tasks(conn)
+            assert tasks[0].require_validated_output is True
+
+
 def test_cli_daemon_help_marks_deprecated():
     """The argparse help string on `daemon` mentions deprecation so users
     scanning `--help` see the migration before running the stub."""

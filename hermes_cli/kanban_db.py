@@ -539,6 +539,9 @@ def read_board_metadata(board: Optional[str] = None) -> dict:
         "default_workdir": None,
         # Project scope: new tasks inherit it (deterministic worktree + branch).
         "project_id": None,
+        # New tasks on this board inherit this as require_validated_output when
+        # the caller doesn't pass one explicitly. See create_task.
+        "require_validated_output_default": False,
         "created_at": None,
         "archived": False,
     }
@@ -561,10 +564,13 @@ def write_board_metadata(
     board: Optional[str], *, name: Optional[str] = None, description: Optional[str] = None,
     icon: Optional[str] = None, color: Optional[str] = None, archived: Optional[bool] = None,
     default_workdir: Optional[str] = None, project_id: Optional[str] = None,
+    require_validated_output_default: Optional[bool] = None,
 ) -> dict:
     """Create/update ``board.json``; unmentioned fields are preserved, ``created_at``
     set on first write. ``project_id``/``default_workdir``: ``None`` = unchanged,
-    "" = clear (``project_id`` is not validated here)."""
+    "" = clear (``project_id`` is not validated here). ``require_validated_output_default``:
+    ``None`` = unchanged; pass an explicit ``bool`` to set it (no "clear" sentinel needed --
+    ``False`` is a fully valid, meaningful value, unlike the string fields above)."""
     _assert_not_delegated_child_mutation()
     slug = _slug_or_default(board)
     meta = read_board_metadata(slug)
@@ -580,6 +586,8 @@ def write_board_metadata(
     for key, value in (("default_workdir", default_workdir), ("project_id", project_id)):
         if value is not None:
             meta[key] = str(value) if value else None
+    if require_validated_output_default is not None:
+        meta["require_validated_output_default"] = bool(require_validated_output_default)
     if not meta.get("created_at"):
         meta["created_at"] = int(time.time())
     path = board_metadata_path(slug)
@@ -1237,7 +1245,7 @@ def create_task(
     project_source_task_id: Optional[str] = None,
     creator_task_id: Optional[str] = None,
     completion_contract: Optional[str] = None,
-    require_validated_output: bool = False,
+    require_validated_output: Optional[bool] = None,
 ) -> str:
     """Create a task (optionally under ``parents``); returns its id.
 
@@ -1274,6 +1282,15 @@ def create_task(
             project_id = (_board_meta_for(board).get("project_id") or "").strip() or None
         except Exception:
             pass
+    # None (unspecified by caller) -> the board's own default, so a caller (CLI, cron
+    # script, or an agent's kanban_create MCP call) never has to remember this flag on
+    # every dispatch -- one board-level setting covers all of them. An explicit True/
+    # False on the call always wins over the board default.
+    if require_validated_output is None:
+        try:
+            require_validated_output = bool(_board_meta_for(board).get("require_validated_output_default"))
+        except Exception:
+            require_validated_output = False
     if workspace_kind is None:
         workspace_kind = "scratch"
     if workspace_kind not in VALID_WORKSPACE_KINDS:

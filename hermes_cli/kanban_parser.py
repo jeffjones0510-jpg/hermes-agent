@@ -110,6 +110,14 @@ _BOARD_SPECS = [
         _SLUG,
         _arg("path", nargs="?", help="Absolute path to use as default workdir. Omit to clear."),
     ], help="Set the default workspace path for tasks on a board"),
+    _cmd("set-require-validated-output-default", [
+        _SLUG,
+        _arg("value", nargs="?", choices=["true", "false"], default="true",
+             help="true (default) or false. When true, every task created on this "
+                  "board inherits require_validated_output unless a caller (CLI flag, "
+                  "cron script, or an agent's kanban_create call) explicitly passes its "
+                  "own value -- see kanban_complete's require_validated_output gate."),
+    ], help="Set/clear whether tasks on a board require a validate_output stamp by default"),
     _cmd("export", [
         _arg("slug", nargs="?", help="Board to export (default: the current board)"),
         _arg("-o", "--output", help="Archive path (default: ./<slug>.tar.gz)"),
@@ -197,6 +205,13 @@ _SPECS = [
                   "review). Best for open-ended cards one shot rarely finishes."),
         _arg("--goal-max-turns", type=int, metavar="N", dest="goal_max_turns",
              help="Turn budget for --goal workers (default 20). Ignored without --goal."),
+        _arg("--require-validated-output", action="store_true", default=None,
+             dest="require_validated_output",
+             help="kanban_complete refuses to complete this task unless a validate_output-"
+                  "family tool already ran, this run, against the exact metadata object, and "
+                  "reported valid:true (see tools/validation_stamp.py). Omit to use the "
+                  "board's own default (see `kanban boards set-require-validated-output-"
+                  "default`); pass this flag to force it on regardless of the board default."),
         _arg("--initial-status", choices=sorted(kb.VALID_INITIAL_STATUSES), default="running",
              help="Initial card status. Use 'blocked' for cards "
                   "that require immediate human ops (R3 gate) "
