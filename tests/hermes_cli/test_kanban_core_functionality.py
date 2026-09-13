@@ -1037,6 +1037,13 @@ class TestCreateRequireValidatedOutputFlag:
             tasks = kb.list_tasks(conn)
             assert tasks[0].require_validated_output is True
 
+    def test_show_json_surfaces_the_field(self, fresh_home_for_create):
+        """A field that's True in the DB but invisible in `show --json` is its
+        own trap: it happened to require_validated_output itself (discovered
+        live, 2026-09-13, dispatching t_ab5eaf4c)."""
+        from hermes_cli.kanban_output import _TASK_DICT_FIELDS
+        assert "require_validated_output" in _TASK_DICT_FIELDS
+
 
 def test_cli_daemon_help_marks_deprecated():
     """The argparse help string on `daemon` mentions deprecation so users
