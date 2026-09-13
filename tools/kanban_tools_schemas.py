@@ -462,6 +462,13 @@ KANBAN_CREATE_SCHEMA = _schema(
             "Declare at creation: local-only (default), OWNER/REPO for PR publication, or an exact GitHub PR URL. "
             "PR tasks cannot complete until repository-required exact-head CI passes. On publication pass metadata.published_pr."
         )),
+        "require_validated_output": _prop("boolean", (
+            "Declare at creation: kanban_complete will refuse to complete this task unless "
+            "a validate_output-family tool already ran, THIS run, against the exact object "
+            "passed as kanban_complete's metadata, and reported valid:true. Use for profiles "
+            "whose validate tool writes a stamp (see tools/validation_stamp.py); a worker "
+            "cannot skip validation and hand-craft metadata instead. Defaults to false."
+        )),
         "goal_max_turns": _prop("integer", (
                 "Turn budget for goal_mode workers. Caps how many "
                 "continuation turns the worker may take before the task "

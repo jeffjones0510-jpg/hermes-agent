@@ -17,6 +17,7 @@ from typing import Any, Callable, Optional
 
 from agent.redact import redact_sensitive_text
 from hermes_cli.goals import judge_goal
+from tools import validation_stamp
 from tools.registry import no_cache_check_fn, registry, tool_error
 from hermes_cli.config import cfg_get, load_config
 from tools.kanban_tools_schemas import (
@@ -330,7 +331,7 @@ def _opt_int(value: Any, default: Optional[int] = None) -> Optional[int]:
 _TASK_FIELDS = tuple(
     "id title body assignee status tenant priority workspace_kind workspace_path created_by "
     "created_at started_at completed_at result current_run_id model_override "
-    "provider_override completion_contract last_failure_error".split())
+    "provider_override completion_contract require_validated_output last_failure_error".split())
 _TASK_SUMMARY_FIELDS = tuple(
     "id title assignee status priority tenant workspace_kind workspace_path project_id created_by "
     "created_at started_at completed_at current_run_id model_override provider_override".split())
@@ -566,6 +567,7 @@ def _handle_complete(args: dict, **kw) -> str:
     summary = _redact_opt(args.get("summary"))
     result = _redact_opt(args.get("result"))
     metadata = args.get("metadata")
+    raw_metadata = metadata  # pre-redaction: what a validate_output stamp actually hashed
     if isinstance(metadata, dict):
         # Keep the unredacted dict if the redacted JSON cannot be re-parsed.
         metadata = _redact_metadata(metadata) or metadata
@@ -583,6 +585,14 @@ def _handle_complete(args: dict, **kw) -> str:
         # actually reachable — see _goal_judge_available for why an unavailable judge fails open.
         task = kb.get_task(conn, tid)
         _goal_gate("kanban_complete", task, tid, (summary or result or "").strip())
+        # Opt-in validate_output completion gate (require_validated_output, OPEN_ITEMS
+        # item 18): a task can require that a validate_output-family tool already ran,
+        # this run, against this exact metadata object, and reported valid:true. See
+        # tools/validation_stamp.py for the stamp file contract.
+        if task is not None and task.require_validated_output:
+            gate_error = validation_stamp.check_validation_gate(
+                tid, _worker_run_id(tid), raw_metadata)
+            _check(gate_error is None, gate_error)
         try:
             ok = kb.complete_task(
                 conn, tid, result=result, summary=summary, metadata=metadata,
@@ -850,6 +860,7 @@ def _handle_create(args: dict, **kw) -> str:
     triage, skills, goal_mode = (
         _parse_bool_arg(args, "triage"), _coerce_str_list(args.get("skills"), "skills", "skill names"),
         _parse_bool_arg(args, "goal_mode"))
+    require_validated_output = _parse_bool_arg(args, "require_validated_output")
     model_override, provider_override = args.get("model"), args.get("provider")
     _check(model_override or not provider_override, "'provider' requires 'model' to be set as well")
     parents = _coerce_str_list(args.get("parents") or [], "parents", "task ids")
@@ -879,6 +890,7 @@ def _handle_create(args: dict, **kw) -> str:
             model_override=model_override, provider_override=provider_override,
             goal_mode=goal_mode, goal_max_turns=_opt_int(args.get("goal_max_turns")),
             completion_contract=args.get("completion_contract"),
+            require_validated_output=require_validated_output,
             initial_status=str(args.get("initial_status") or "running"),
             created_by=os.environ.get("HERMES_PROFILE") or "worker", session_id=session_id)
         landed = _fields(kb.get_task(conn, new_tid), _CREATED_FIELDS)

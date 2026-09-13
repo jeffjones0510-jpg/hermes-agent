@@ -813,6 +813,12 @@ _LATER_TASK_COLUMNS = (
     # Typed block reason (VALID_BLOCK_KINDS); NULL = generic human blocker.
     ("block_kind", "block_kind TEXT"),
     ("block_recurrences", "block_recurrences INTEGER NOT NULL DEFAULT 0"),
+    # Opt-in completion gate (career-scan validate_output loophole, OPEN_ITEMS
+    # item 18): when 1, kanban_complete refuses to complete this task unless a
+    # validation stamp for the CURRENT run exists, is valid, and hashes to the
+    # exact metadata being completed with. See ``_validated_output_gate`` in
+    # tools/kanban_tools.py. NULL/0 = no gate (the default, every other profile).
+    ("require_validated_output", "require_validated_output INTEGER NOT NULL DEFAULT 0"),
 )
 
 _NOTIFY_SUB_COLUMNS = (

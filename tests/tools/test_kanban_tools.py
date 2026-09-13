@@ -164,6 +164,155 @@ def test_complete_retry_with_empty_created_cards_succeeds(worker_env):
         conn.close()
 
 
+# ---------------------------------------------------------------------------
+# require_validated_output completion gate (OPEN_ITEMS item 18: a worker
+# completing with only `summary`, no `metadata`, bypassing validate_output).
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def gated_worker_env(monkeypatch, tmp_path):
+    """Same shape as worker_env, but the task opts into require_validated_output."""
+    home = tmp_path / ".hermes"
+    home.mkdir()
+    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("HERMES_PROFILE", "test-worker")
+    monkeypatch.delenv("HERMES_SESSION_ID", raising=False)
+    from pathlib import Path as _Path
+    monkeypatch.setattr(_Path, "home", lambda: tmp_path)
+
+    from hermes_cli import kanban_db as kb
+    from hermes_cli import kanban_db_connect as kbc
+    kb._INITIALIZED_PATHS.clear()
+    kb.init_db()
+    conn = kbc.connect()
+    try:
+        tid = kb.create_task(
+            conn, title="gated-worker-test", assignee="test-worker",
+            require_validated_output=True)
+        kb.claim_task(conn, tid)
+        run_id = kb.get_task(conn, tid).current_run_id
+    finally:
+        conn.close()
+    monkeypatch.setenv("HERMES_KANBAN_TASK", tid)
+    monkeypatch.setenv("HERMES_KANBAN_RUN_ID", str(run_id))
+    return tid, run_id
+
+
+def test_complete_blocked_without_any_stamp_when_gated(gated_worker_env):
+    from hermes_cli import kanban_db as kb
+    from hermes_cli import kanban_db_connect as kbc
+    from tools import kanban_tools as kt
+    tid, _run_id = gated_worker_env
+
+    out = json.loads(kt._handle_complete({"summary": "done", "metadata": {"x": 1}}))
+
+    assert out.get("error")
+    assert "validate_output" in out["error"]
+    with kbc.connect() as conn:
+        assert kb.get_task(conn, tid).status == "running"
+
+
+def test_complete_blocked_when_stamp_is_from_a_stale_run(gated_worker_env):
+    from hermes_cli import kanban_db as kb
+    from hermes_cli import kanban_db_connect as kbc
+    from tools import kanban_tools as kt
+    from tools import validation_stamp as vs
+    tid, run_id = gated_worker_env
+
+    metadata = {"x": 1}
+    vs.STAMP_DIR.mkdir(parents=True, exist_ok=True)
+    (vs.STAMP_DIR / f"{tid}.json").write_text(json.dumps({
+        "run_id": run_id + 999, "valid": True, "candidate_hash": vs.canonical_hash(metadata),
+    }))
+
+    out = json.loads(kt._handle_complete({"summary": "done", "metadata": metadata}))
+
+    assert out.get("error")
+    with kbc.connect() as conn:
+        assert kb.get_task(conn, tid).status == "running"
+
+
+def test_complete_blocked_when_stamp_says_invalid(gated_worker_env):
+    from hermes_cli import kanban_db as kb
+    from hermes_cli import kanban_db_connect as kbc
+    from tools import kanban_tools as kt
+    from tools import validation_stamp as vs
+    tid, run_id = gated_worker_env
+
+    metadata = {"x": 1}
+    vs.STAMP_DIR.mkdir(parents=True, exist_ok=True)
+    (vs.STAMP_DIR / f"{tid}.json").write_text(json.dumps({
+        "run_id": run_id, "valid": False, "candidate_hash": vs.canonical_hash(metadata),
+    }))
+
+    out = json.loads(kt._handle_complete({"summary": "done", "metadata": metadata}))
+
+    assert out.get("error")
+    with kbc.connect() as conn:
+        assert kb.get_task(conn, tid).status == "running"
+
+
+def test_complete_blocked_when_metadata_does_not_match_validated_hash(gated_worker_env):
+    from hermes_cli import kanban_db as kb
+    from hermes_cli import kanban_db_connect as kbc
+    from tools import kanban_tools as kt
+    from tools import validation_stamp as vs
+    tid, run_id = gated_worker_env
+
+    vs.STAMP_DIR.mkdir(parents=True, exist_ok=True)
+    (vs.STAMP_DIR / f"{tid}.json").write_text(json.dumps({
+        "run_id": run_id, "valid": True, "candidate_hash": vs.canonical_hash({"different": True}),
+    }))
+
+    out = json.loads(kt._handle_complete({"summary": "done", "metadata": {"x": 1}}))
+
+    assert out.get("error")
+    with kbc.connect() as conn:
+        assert kb.get_task(conn, tid).status == "running"
+
+
+def test_complete_succeeds_with_matching_current_run_valid_stamp(gated_worker_env):
+    from hermes_cli import kanban_db as kb
+    from hermes_cli import kanban_db_connect as kbc
+    from tools import kanban_tools as kt
+    from tools import validation_stamp as vs
+    tid, run_id = gated_worker_env
+
+    metadata = {"x": 1}
+    vs.STAMP_DIR.mkdir(parents=True, exist_ok=True)
+    (vs.STAMP_DIR / f"{tid}.json").write_text(json.dumps({
+        "run_id": run_id, "valid": True, "candidate_hash": vs.canonical_hash(metadata),
+    }))
+
+    out = json.loads(kt._handle_complete({"summary": "done", "metadata": metadata}))
+
+    assert out.get("ok") is True
+    with kbc.connect() as conn:
+        assert kb.get_task(conn, tid).status == "done"
+
+
+def test_complete_ungated_task_ignores_missing_stamp(worker_env):
+    """Positive control: require_validated_output defaults to False, so every
+    other profile's kanban_complete is unaffected by this gate."""
+    from tools import kanban_tools as kt
+    out = json.loads(kt._handle_complete({"summary": "done", "metadata": {"x": 1}}))
+    assert out.get("ok") is True
+
+
+def test_create_persists_require_validated_output_flag(worker_env):
+    from hermes_cli import kanban_db as kb
+    from hermes_cli import kanban_db_connect as kbc
+    from tools import kanban_tools as kt
+
+    out = json.loads(kt._handle_create({
+        "title": "gated child", "assignee": "test-worker",
+        "require_validated_output": True,
+    }))
+    assert out.get("ok") is True
+    with kbc.connect() as conn:
+        assert kb.get_task(conn, out["task_id"]).require_validated_output is True
+
+
 def test_request_review_rejects_unknown_reviewer_without_mutation(monkeypatch, worker_env, tmp_path):
     """#106163: a non-profile ``reviewer`` (e.g. the literal "reviewer") must be
     refused with an error the model sees, leaving the task running under the
